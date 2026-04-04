@@ -17,6 +17,7 @@ spark = SparkSession.builder \
     .appName("XTD_Labs_Historical_Data_Processing") \
     .master("local") \
     .getOrCreate()
+spark.sparkContext.setLogLevel("ERROR")
 
 # 1. Read All Bronce data (All JSON files at once)
 raw_df = spark.read.json("./data/bronze/*.json", multiLine=True)
