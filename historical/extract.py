@@ -8,24 +8,36 @@ from datetime import date, timedelta
 BRONZE_PATH = "data/bronze"
 os.makedirs(BRONZE_PATH, exist_ok=True)
 
+# Limit to 3 concurrent requests to avoid being banned by the API
+semaphore = asyncio.Semaphore(3)
+
+
 async def fetch_carbon_data(session, target_date):
     url = f"https://api.carbonintensity.org.uk/regional/intensity/{target_date}/pt24h"
-    file_path = f"{BRONZE_PATH}/{target_date}.json"
+    file_path = os.path.join(BRONZE_PATH, f"{target_date}.json")
     
-    if os.path.exists(file_path):
-        return # skip if bronze exists
+    if os.path.exists(file_path): 
+        return # Skip if we already have it
 
-    try:
-        async with session.get(url, timeout=10) as response:
-            if response.status == 200:
-                data = await response.json()
-                with open(file_path, 'w') as f:
-                    json.dump(data['data'], f)
-                print(f"Downloaded: {target_date}")
-            else:
-                print(f"Failed {target_date}: Status {response.status}")
-    except Exception as e:
-        print(f"Error on {target_date}: {e}")
+    async with semaphore:
+        for attempt in range(3): # Try 3 times
+            try:
+                async with session.get(url, timeout=20) as response:
+                    if response.status == 200:
+                        res_json = await response.json()
+                        with open(file_path, "w") as f:
+                            json.dump(res_json["data"], f)
+                        print(f"Saved: {target_date}")
+                        return
+                    elif response.status == 429:
+                        print(f"Rate limited on {target_date}. Waiting...")
+                        await asyncio.sleep(5 * (attempt + 1))
+                    else:
+                        print(f"Status {response.status} for {target_date}")
+            except Exception as e:
+                print(f"Retry {attempt+1} for {target_date} due to {e}")
+                await asyncio.sleep(2)
+        print(f"FAILED after 3 attempts: {target_date}")
 
 async def run_extraction():
     start_date = date(2022, 1, 1)
